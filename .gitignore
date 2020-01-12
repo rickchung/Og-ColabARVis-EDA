@@ -1,0 +1,24 @@
+# Exclude all data
+data
+proc_data
+*.csv
+*.zip
+*.pdf
+*.json
+keywords_*
+run_cred.sh
+example_*
+
+# Python things
+*.pyc
+*.ipynb
+
+# IDE things
+.vscode
+.idea
+.ipynb_checkpoints
+
+# misc
+stanford-corenlp-full-2018-10-05
+trans_helper
+Results*
