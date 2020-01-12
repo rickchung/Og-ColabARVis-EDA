@@ -1,4 +1,8 @@
-# Data Files
+# Model
+
+![Data Model](mode.png)
+
+# Output Data Files (Not Included in this Repository)
 
 - `data.v0.csv`: metadata of user study + audio transcriptions
 - `data.v1.csv`: data V0 + NLP syntatic features (e.g., PoS tags)
