@@ -1,6 +1,6 @@
 # Model
 
-![Data Model](mode.png)
+![Data Model](model.png)
 
 # Output Data Files (Not Included in this Repository)
 
