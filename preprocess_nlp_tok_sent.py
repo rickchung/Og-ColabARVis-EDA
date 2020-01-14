@@ -154,23 +154,26 @@ def preprocess_txt_time(df):
 
     return data
 
-def add_keyword_features(df, f_kw_cmd='keywords_cmds', f_kw_action='keywords_actions'):
+def add_keyword_features(df, input_column='tk_wnet', f_kw_cmd='keywords_cmds', f_kw_action='keywords_actions'):
     """
     Annotate and count keywords.
     """
-    data = df.copy()
-
     print("[INFO] Adding keyword features: {}, {}".format(f_kw_cmd, f_kw_action))
+
+    # Copy the input data
+    data = df.copy()
+    if input_column not in data.columns:
+        raise IndexError("The input column was not found: {}".format(input_column))
 
     # Count customized keywords
     with open(f_kw_cmd, 'r') as fin:
         keywords_cmds = [i.strip() for i in fin.readlines()]
-    data['num_kw_cmds'] = data['tk_wnet'].apply(
+    data['num_kw_cmds'] = data[input_column].apply(
         lambda x: sum([v for k, v in Counter(x).items() if k.lower() in keywords_cmds]))
 
     with open(f_kw_action, 'r') as fin:
         keywords_actions = [i.strip() for i in fin.readlines()]
-    data['num_kw_actions'] = data['tk_wnet'].apply(
+    data['num_kw_actions'] = data[input_column].apply(
         lambda x: sum([v for k, v in Counter(x).items() if k.lower() in keywords_actions]))
 
     # Normalize
@@ -179,7 +182,7 @@ def add_keyword_features(df, f_kw_cmd='keywords_cmds', f_kw_action='keywords_act
 
     return data
 
-def add_pos_features(df, token_column='tk_nostop'):
+def add_pos_features(df, input_column='tk_nostop'):
     """
     Add NLTK general PoS tags.
     """
@@ -205,10 +208,12 @@ def add_pos_features(df, token_column='tk_nostop'):
 
     # Copy the input data
     data = df.copy()
+    if input_column not in data.columns:
+        raise IndexError("The input column was not found: {}".format(input_column))
 
     # Add PoS tags
     # Reference: https://www.nltk.org/book/ch05.html
-    data['tk_pos'] = data[token_column].apply(
+    data['tk_pos'] = data[input_column].apply(
         lambda x: pos_tag(x, tagset='universal'))
 
     # Count PoS tags
@@ -223,11 +228,14 @@ def add_pos_features(df, token_column='tk_nostop'):
 
     return data
 
-def add_corenlp_pos_features(df):
+def add_corenlp_pos_features(df, input_column='txt'):
     """
     Add Treebank PoS tags from CoreNLP.
     """
+    # Copy the input data
     data = df.copy()
+    if input_column not in data.columns:
+        raise IndexError("The input column was not found: {}".format(input_column))
 
     print("[INFO] Initalizing and starting the CoreNLP server")
     core_nlp_analyzer = CoreNLPSentenceAnalyzer()
@@ -235,7 +243,7 @@ def add_corenlp_pos_features(df):
 
     # Identify sentences
     print("[INFO] Identifying sentences")
-    data['sent'] = data['txt'].apply(lambda x: sent_tokenize(
+    data['sent'] = data[input_column].apply(lambda x: sent_tokenize(
         x.replace('1:', '').replace('2:', '').replace('\n', '.')
         .replace('..', '.').replace(',', '.')))
     # Parse sentence trees and annotate PoS tags
