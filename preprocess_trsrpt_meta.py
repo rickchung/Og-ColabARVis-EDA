@@ -84,7 +84,7 @@ def append_meta_data(tab, trans_type='machine'):
     # Text transcription features
 
     # Add length of text
-    tab['txt_len'] = tab['txt'].str.len()
+    tab['txt_len'] = tab['txt'].str.strip().str.len()
     tab['is_txt_empty'] = (tab['txt_len'] == 0)
 
     # Add number of words seperated by whitespace
@@ -123,13 +123,13 @@ def append_meta_data(tab, trans_type='machine'):
 
     # Output columns
     output_cols = [
-        # User
-        'group', 'task_order', 'task', 'short_id', 'user', 'role',
+        # Study details
+        'group', 'group_id', 'task_order', 'task',
+        'user_id', 'short_id', 'user', 'role',
         # Transcription
-        'timestamp', 'txt_path', 'txt', 'txt_len',
+        'timestamp', 'txt_path', 'txt',
         # Text features
         'num_spaced_words', 'num_spwords_psec', 'num_portions',
-        'is_txt_empty',
         # Audio
         'audio_path', 'audio_len',
         # Task log data

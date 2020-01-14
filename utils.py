@@ -20,7 +20,7 @@ def get_trans_content(file_path):
     """
     content = None
     if file_path.exists():
-        with open(str(file_path), 'r') as fin:
+        with open(file_path, 'r') as fin:
             content = ' '.join(fin.readlines())
     return content
 
@@ -49,6 +49,10 @@ def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
             if not user_dir.is_dir():
                 continue
 
+            # Extract the user_id and group_id
+            user_id = user_dir.name
+            group_id = ustudy_dir.name
+
             # Generate the shortened ID
             _tmp = user_dir.stem.split('-')
             short_id = _tmp[0][0] + _tmp[1][0] + '-' + ''.join(_tmp[2:])
@@ -72,7 +76,8 @@ def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
 
                 # Append to the record list (which will be exported as a dataframe)
                 records.append((
-                    short_id, audio_st_time, str(audio_path),
+                    user_id, group_id, short_id,
+                    audio_st_time, str(audio_path),
                     str(txt_path), txt_content,
                     str(txt_r_path), txt_r_content,
                     str(log_path[0]),
@@ -84,7 +89,8 @@ def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
 
     # Export as csv
     columns = (
-        'short_id', 'audio_st_time', 'audio_path',
+        'user_id', 'group_id', 'short_id',
+        'audio_st_time', 'audio_path',
         'txt_path', 'txt_content',
         'txt_r_path', 'txt_r_content',
         'log_path',
@@ -95,11 +101,11 @@ def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
 
     return records
 
-def read_task_log(path_fname):
+def read_task_log(path_fname, year='2019'):
     """
     Read the task log file into a dataframe. Only the first three columns in the log file are defined. The remaining columns are misc details.
     """
-    'data/UserStudy8-AN-11252019/Salmon-Marmalade-11-25-2019-12-52-54/11-25-2019-12-52-54-Log.txt'
+    path_fname = Path(path_fname)
 
     # Extract the group ID and user ID from the path
     group_id = path_fname.parent.parent.name
@@ -116,6 +122,9 @@ def read_task_log(path_fname):
     # Construct a dataframe
     df = pd.DataFrame.from_records(
         records, columns=['timestamp', 'log_class', 'log_tag', 'log_details'])
+
+    # Update the timestamp
+    df['timestamp'] = (year + '-' + df['timestamp']).str.replace('/', '-')
 
     # Append the user ID and group ID
     df['user_id'] = user_id
@@ -140,8 +149,8 @@ def collect_task_logdata(data_path='data'):
 
     output_fname = 'task_log_records.csv'
     task_log_records = pd.concat(task_log_records)
-    task_log_records.to_csv(output_fname, index=None)
     task_log_records.sort_values(['group_id', 'timestamp'], inplace=True)
+    task_log_records.to_csv(output_fname, index=None)
 
     print('[INFO] Done. The result was saved in {}'.format(output_fname))
 
