@@ -10,6 +10,7 @@ output file will be processed manually by the researcher for later analyses.
 import pandas as pd
 from utils import gen_audio_info_tab, get_wav_duration, read_task_log
 
+
 def append_player_roles(input_df, id_col='short_id'):
     """
     Assign player roles to each record in the input_df. The ad-hoc rule was made by myself.
@@ -41,6 +42,7 @@ def append_player_roles(input_df, id_col='short_id'):
         output_df.loc[output_df['short_id'] == u, 'role'] = role
 
     return output_df
+
 
 def append_meta_data(tab, trans_type='machine'):
     """
@@ -81,32 +83,8 @@ def append_meta_data(tab, trans_type='machine'):
     elif trans_type == 'human':
         tab['txt'] = tab['txt_r_content']
 
-    # Text transcription features
-
-    # Add length of text
-    tab['txt_len'] = tab['txt'].str.strip().str.len()
-    tab['is_txt_empty'] = (tab['txt_len'] == 0)
-
-    # Add number of words seperated by whitespace
-    tab['num_spaced_words'] = None
-    if trans_type == 'machine':
-        tab['num_spaced_words'] = (tab['txt'].str.count(' ') + 1)
-    elif trans_type == 'human':
-        tab['num_spaced_words'] = (tab['txt'].str.count(' ') - tab['txt'].str.count(':'))
-    tab.loc[tab['is_txt_empty'], 'num_spaced_words'] = 0
-
     # Add audio duration
     tab['audio_len'] = tab['audio_path'].apply(get_wav_duration)
-    tab['num_spwords_psec'] = tab['num_spaced_words'] / tab['audio_len']
-
-    # Add number of portions in transcription
-    tab['num_portions'] = None
-    if trans_type == 'machine':
-        tab['num_portions'] = tab['txt'].str.count('\|') + 1
-    elif trans_type == 'human':
-        tab['num_portions'] = tab['txt'].str.count(':')
-    tab.loc[tab['is_txt_empty'], 'num_portions'] = 0
-
     tab['timestamp'] = pd.to_datetime(
         tab['audio_st_time'], format='%m%d%Y%H%M%S')
 
@@ -128,8 +106,6 @@ def append_meta_data(tab, trans_type='machine'):
         'user_id', 'short_id', 'user', 'role',
         # Transcription
         'timestamp', 'txt_path', 'txt',
-        # Text features
-        'num_spaced_words', 'num_spwords_psec', 'num_portions',
         # Audio
         'audio_path', 'audio_len',
         # Task log data
@@ -161,4 +137,3 @@ if __name__ == '__main__':
     # Output
     output_df.to_csv(output_fname, index=None)
     print("Saved as {}".format(output_fname))
-
