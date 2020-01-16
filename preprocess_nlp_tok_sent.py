@@ -335,9 +335,39 @@ def add_corenlp_pos_features(df, input_column='txt'):
     return data
 
 
+def sync_audio_len(df):
+    """
+    Resample transactions sampled at 10s interval by 30s frequency.
+    """
+    data = df.copy()
+
+    gp_dfs = []
+    for _, group in data.groupby('group_id'):
+        if group['audio_len'].values[0] == 30:
+            gp_dfs.append(group)
+        else:
+            new_gp_df = []
+            for i in range(0, group.shape[0], 3):
+                sec = group.iloc[i:i+3].copy()
+                sec['txt'] = sec['txt'].fillna('')
+                # User the first row as the base
+                joined_row = sec.iloc[0].copy()
+                joined_row['txt'] = '\n'.join(sec['txt'])
+                joined_row['audio_len'] = sec['audio_len'].sum()
+                new_gp_df.append(joined_row)
+            gp_dfs.append(pd.DataFrame(new_gp_df))
+
+    rt = pd.concat(gp_dfs).reset_index(drop=True)
+
+    return rt
+
+
 if __name__ == '__main__':
     # Load data
     data = pd.read_csv('data.v0.csv')
+
+    # Resample
+    data = sync_audio_len(data)
 
     # Preprocess txt and timestamps
     data, tk_columns = preprocess_txt_time(data)
