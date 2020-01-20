@@ -15,11 +15,11 @@ Output Files
 
         This is an intermediate file and you probably don't need this.
 
-    merged_code_preexec.csv:
+    code_preexec.csv:
 
         A timetable of all pre-exec code for groups (group_id). Since the code has been merged (i.e., code on two devices are merged and aligned), the data are recognized by group_id. The user_id is actually irrelevant in this table.
 
-    merged_code_postedit.csv
+    code_postedit.csv
 
         A time table of all post-edit code snapshots. This table should be interpreted on a user-by-user basis because there may be only one user modified his/her code at times. The code snapshots of P1 and P2 are not merged because it is not easy to align code by following the current version of task log.
 
@@ -39,6 +39,10 @@ import re
 import difflib
 from collections import Counter
 from pprint import pprint
+
+# Edit distance package
+# https://github.com/luozhouyang/python-string-similarity#levenshtein
+from strsimpy.levenshtein import Levenshtein as Lev
 
 
 def pair_code_snapshots(dfgp_code):
@@ -70,7 +74,8 @@ def pair_code_snapshots(dfgp_code):
         paired_code.append((i, j))
 
         p1_code = i.split('... ;')
-        p2_code = j.split('... ;')[1:]
+        # Split, remove the heading empty line, and append one empty item for alignment
+        p2_code = j.split('... ;')[1:] + ['']
         p_merged_code = []
         for k, l in zip(p1_code, p2_code):
             p_merged_code.append(k)
@@ -227,6 +232,57 @@ def _mark_vis_type_code(x, timetable):
     return rt
 
 
+def _get_stage_clear_times(x):
+    """
+    Returns:
+        Stage-clear times of tutorial, task1, task2 in a tuple
+    """
+    rt = [np.nan, np.nan, np.nan]
+
+    # Find all stage-clear times
+    clear_times = x[x['log_details'].str.startswith('Stage Clear')].copy()
+
+    # Merge those times that are too close
+    # (it means they are just duplicate records from the two devices)
+    clear_times['offset'] = (clear_times['timestamp'].diff()).fillna(
+        pd.Timedelta(seconds=3600))
+    event_times = clear_times[clear_times['offset']
+                              >= pd.Timedelta(seconds=60)]
+    for i, item in enumerate(event_times['timestamp'].values):
+        rt[i] = item
+
+    return pd.Series(rt, index=['t0_clear_time', 't1_clear_time', 't2_clear_time'])
+
+
+def _get_relaxed_solution(sol):
+    """
+    Get an relaxed solution (by removing args in continue sec)
+    """
+    rt = []
+    for i in sol:
+        if i == "...":
+            rt.append(i)
+        else:
+            cmd, arg = i.split(' ')
+            if cmd == 'Continue_Sec':
+                rt.append(cmd)
+            else:
+                rt.append(i)
+    return rt
+
+
+def _get_editdist_solution(snapshot, solution, solution_r):
+    """
+    Split code snapshots and calculate edit distance to the solution
+    """
+    split = [i.strip() for i in snapshot.split('; ') if len(i) != 0]
+    split_r = _get_relaxed_solution(split)
+    lev = Lev()
+    ed_sol = lev.distance(split, solution)
+    ed_sol_r = lev.distance(split_r, solution_r)
+    return pd.Series({'ed_sol': ed_sol, 'ed_sol_r': ed_sol_r})
+
+
 # ============================================================
 # Load the data
 print("[INFO] Loading input files")
@@ -245,6 +301,14 @@ df_tasklog['timestamp'] = pd.to_datetime(df_tasklog['timestamp'])
 print("[INFO] Processing task log data")
 df_tasklog.sort_values('timestamp', inplace=True)
 
+# Extract the time when a map is opened and cleared
+stage_clear_times = df_tasklog[
+    (df_tasklog['log_details'].str.startswith('MAP, A map is loaded')) |
+    (df_tasklog['log_details'].str.startswith('Stage Clear'))
+].copy()
+stage_clear_times = stage_clear_times\
+    .groupby('group_id')\
+    .apply(_get_stage_clear_times)
 
 # ============================================================
 # Preprocess the transcriptions
@@ -433,19 +497,91 @@ df_code_postedit1 = df_code_postedit1.reset_index(drop=True)
 
 # Find differences between pre-exec code snapshots
 df_code_preexec2 = df_code_preexec1.groupby(['group_id', 'vis_type'])\
-    .apply(_find_code_diff)
+    .apply(_find_code_diff).reset_index(drop=True)
 df_code_postedit2 = df_code_postedit1.groupby(['user_id', 'vis_type'])\
-    .apply(_find_code_diff)
+    .apply(_find_code_diff).reset_index(drop=True)
 
+# Find the records showing code differences
+df_cedit = df_code_postedit2[df_code_postedit2['num_removed'] > 0].copy()
+df_cexec = df_code_preexec2[df_code_preexec2['num_removed'] > 0].copy()
+# Label types of code editing
+df_cedit['edit_label'] = 'EDIT_CMD'
+df_cedit.loc[df_cedit['num_arg_tweaked'] > 0, 'edit_label'] = 'EDIT_PARAM'
+# Group time series by bins
+num_bins = 5
+df_cedit['timebins'] = pd.cut(
+    df_cedit['time_offset_vt'], num_bins,
+    labels=['T' + str(i) for i in range(num_bins)])
+
+# Add the solution code (for pre-exec snapshots)
+solution1 = [
+    "Engine (start)",
+    "Climb (up)",
+    "Move (forward)",
+    "Continue_Sec (8)",
+    "Hover ()",
+    "Climb (down)",
+    "Continue_Sec (6)",
+    "Climb (up)",
+    "Continue_Sec (3)",
+    "Move (forward)",
+    "Continue_Sec (7)",
+    "Hover ()",
+    "Climb (down)",
+]
+relaxed_solution1 = _get_relaxed_solution(solution1)
+
+# Compute edit distance to the solution (ed_sol)
+df_cexec[['ed_sol', 'ed_sol_r']] = df_cexec['snapshot'].apply(
+    _get_editdist_solution, solution=solution1, solution_r=relaxed_solution1)
+
+# Add the solution code for post-edit snapshots
+pe_solution1 = [
+    "Engine (start)",
+    "Climb (up)",
+    "...",
+    "Climb (down)",
+    "Continue_Sec (6)",
+    "Climb (up)",
+    "Continue_Sec (3)",
+    "...",
+    "Climb (down)",
+]
+pe_solution2 = [
+    "...",
+    "Move (forward)",
+    "Continue_Sec (8)",
+    "Hover ()",
+    "...",
+    "Move (forward)",
+    "Continue_Sec (7)",
+    "Hover ()",
+]
+pe_relaxed_solution1 = _get_relaxed_solution(pe_solution1)
+pe_relaxed_solution2 = _get_relaxed_solution(pe_solution2)
+
+# Compute edit distance to the solution (ed_sol)
+df_cedit['ed_sol'], df_cedit['ed_sol_r'] = np.nan, np.nan
+# For P2 code
+i_p2code = df_cedit['snapshot'].str.startswith("...")
+df_cedit.loc[i_p2code, ['ed_sol', 'ed_sol_r']] = \
+    df_cedit.loc[i_p2code, 'snapshot'].apply(
+        _get_editdist_solution, solution=pe_solution2, solution_r=pe_relaxed_solution2)
+# For P1 code
+i_p1code = (~i_p2code)
+df_cedit.loc[i_p1code, ['ed_sol', 'ed_sol_r']] = \
+    df_cedit.loc[i_p1code, 'snapshot'].apply(
+        _get_editdist_solution, solution=pe_solution1, solution_r=pe_relaxed_solution1)
 
 # ============================================================
 # Annotate transcription logs by event windows
+print('[INFO] Marking event windows')
 df_trans1['event_win'] = annotate_event_wins(df_trans1, event_windows)
 # Annotate code snapshots by event windows
-df_code_preexec['event_win'] = annotate_event_wins(
-    df_code_preexec, event_windows, heuristic=False)
-df_code_postedit['event_win'] = annotate_event_wins(
-    df_code_postedit, event_windows, heuristic=False)
+df_cexec['event_win'] = annotate_event_wins(
+    df_cexec, event_windows, heuristic=False)
+df_cedit['event_win'] = annotate_event_wins(
+    df_cedit, event_windows, heuristic=False)
 
 
 # ============================================================
@@ -453,6 +589,7 @@ df_code_postedit['event_win'] = annotate_event_wins(
 print("[INFO] Exporting processed data")
 exec_stimes.to_csv('state_stimes.csv', index=None)
 event_windows.to_csv('event_windows.csv', index=None)
-df_code_preexec2.to_csv("code_preexec.csv", index=None)
-df_code_postedit2.to_csv("code_postedit.csv", index=None)
+df_cexec.to_csv("code_preexec.csv", index=None)
+df_cedit.to_csv("code_postedit.csv", index=None)
 df_trans1.to_csv('trans_records_v0.csv', index=None)
+stage_clear_times.to_csv('stage_clear_times.csv')
