@@ -241,15 +241,29 @@ def _get_stage_clear_times(x):
 
     # Find all stage-clear times
     clear_times = x[x['log_details'].str.startswith('Stage Clear')].copy()
+    # Find map-loading times
+    map_loading_times = x[x['log_details'].str.startswith(
+        'MAP, A map is loaded: ')].copy()
 
     # Merge those times that are too close
     # (it means they are just duplicate records from the two devices)
-    clear_times['offset'] = (clear_times['timestamp'].diff()).fillna(
-        pd.Timedelta(seconds=3600))
-    event_times = clear_times[clear_times['offset']
-                              >= pd.Timedelta(seconds=60)]
-    for i, item in enumerate(event_times['timestamp'].values):
-        rt[i] = item
+    clear_times['offset'] = (clear_times['timestamp'].diff())\
+        .fillna(pd.Timedelta(seconds=3600))
+    clear_times = clear_times[
+        clear_times['offset'] >= pd.Timedelta(seconds=60)]
+    map_loading_times['offset'] = (map_loading_times['timestamp'].diff())\
+        .fillna(pd.Timedelta(seconds=3600))
+    map_loading_times = map_loading_times[
+        map_loading_times['offset'] >= pd.Timedelta(seconds=60)]
+
+    # Mark tasks at clear_times
+    clear_times['task_index'] = clear_times['timestamp'].apply(
+        lambda x: ((x > map_loading_times['timestamp'])
+            .reset_index()[::-1])['timestamp'].idxmax()
+    )
+    # Fill up the return values
+    for _, item in clear_times.iterrows():
+        rt[item['task_index']] = item['timestamp']
 
     return pd.Series(rt, index=['t0_clear_time', 't1_clear_time', 't2_clear_time'])
 
