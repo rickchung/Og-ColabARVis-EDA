@@ -240,7 +240,8 @@ def _get_stage_clear_times(x):
     rt = [np.nan, np.nan, np.nan]
 
     # Find all stage-clear times
-    clear_times = x[x['log_details'].str.startswith('Stage Clear')].copy()
+    clear_times = x[x['log_details'].str.startswith(
+        'Stage Clear')].copy()
     # Find map-loading times
     map_loading_times = x[x['log_details'].str.startswith(
         'MAP, A map is loaded: ')].copy()
@@ -259,7 +260,7 @@ def _get_stage_clear_times(x):
     # Mark tasks at clear_times
     clear_times['task_index'] = clear_times['timestamp'].apply(
         lambda x: ((x > map_loading_times['timestamp'])
-            .reset_index()[::-1])['timestamp'].idxmax()
+                   .reset_index()[::-1])['timestamp'].idxmax()
     )
     # Fill up the return values
     for _, item in clear_times.iterrows():
@@ -526,6 +527,27 @@ num_bins = 5
 df_cedit['timebins'] = pd.cut(
     df_cedit['time_offset_vt'], num_bins,
     labels=['T' + str(i) for i in range(num_bins)])
+
+# Count commands
+
+
+def count_cmds(snapshot):
+    split = [i.strip() for i in snapshot.split('; ')]
+    split = [i.strip().split(' ')[0]
+             for i in snapshot.split('; ') if len(i) > 0]
+    cmd_counts = Counter(split)
+    rt = {
+        'n_cmd_move': cmd_counts['Move'],
+        'n_cmd_climb': cmd_counts['Climb'],
+        'n_cmd_hover': cmd_counts['Hover'],
+        'n_cmd_continue': cmd_counts['Continue_Sec'],
+        'n_cmd_engine': cmd_counts['Engine'],
+    }
+    return pd.Series(rt)
+
+
+cmd_counts = df_cexec['snapshot'].apply(count_cmds)
+df_cexec = df_cexec.merge(cmd_counts, left_index=True, right_index=True)
 
 # Add the solution code (for pre-exec snapshots)
 solution1 = [
