@@ -1,7 +1,9 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
+import numpy as np
 import wave
+
 
 def get_wav_duration(fname):
     """
@@ -14,6 +16,7 @@ def get_wav_duration(fname):
     f.close()
     return duration
 
+
 def get_trans_content(file_path):
     """
     Open and read the content in file_path.
@@ -23,6 +26,7 @@ def get_trans_content(file_path):
         with open(file_path, 'r') as fin:
             content = ' '.join(fin.readlines())
     return content
+
 
 def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
     """
@@ -101,6 +105,7 @@ def gen_audio_info_tab(out_fname='audio_info_table.csv', verbose=False):
 
     return records
 
+
 def read_task_log(path_fname, year='2019'):
     """
     Read the task log file into a dataframe. Only the first three columns in the log file are defined. The remaining columns are misc details.
@@ -132,6 +137,7 @@ def read_task_log(path_fname, year='2019'):
 
     return df
 
+
 def collect_task_logdata(data_path='data'):
     """
     Collect and aggregate all task log files in the user-study data folder.
@@ -155,6 +161,7 @@ def collect_task_logdata(data_path='data'):
     print('[INFO] Done. The result was saved in {}'.format(output_fname))
 
     return task_log_records
+
 
 def read_code_snapshot(path_fname, year='2019'):
     """
@@ -185,6 +192,7 @@ def read_code_snapshot(path_fname, year='2019'):
     }
     return record
 
+
 def collect_code_snapshots(data_path='data', snapshot_year='2019'):
     """
     Collect and aggregate all code snapshots in the user-study data folder.
@@ -200,9 +208,11 @@ def collect_code_snapshots(data_path='data', snapshot_year='2019'):
         pre_exec_snapshots = dir_us.glob('*/PreExec-*')
 
         for i in post_edit_snapshots:
-            code_snapshot_records.append(read_code_snapshot(i, year=snapshot_year))
+            code_snapshot_records.append(
+                read_code_snapshot(i, year=snapshot_year))
         for i in pre_exec_snapshots:
-            code_snapshot_records.append(read_code_snapshot(i, year=snapshot_year))
+            code_snapshot_records.append(
+                read_code_snapshot(i, year=snapshot_year))
 
     # Convert into dataframe and then export
     output_fname = 'code_snapshot_records.csv'
@@ -214,7 +224,234 @@ def collect_code_snapshots(data_path='data', snapshot_year='2019'):
 
     return code_snapshot_df
 
-if __name__ == "__main__":
-    code_snapshots = collect_code_snapshots()
-    task_log_records = collect_task_logdata()
 
+class CodeInterpreter():
+    """
+    CodeInterpreter processes records of code edits and computer some relevant statistics.
+    """
+
+    p1_initcode_task1 = [
+        "Turn (left);",
+        "Move (forward);",
+        "... ;",
+        "Hover ();",
+        "Continue_Sec (1);",
+        "Hover ();",
+        "Continue_Sec (1);",
+        "... ;",
+        "Move (forward);",
+    ]
+    p1_initcode_task2 = [
+        "Engine (start);",
+        "Move (forward);",
+        "... ;",
+        "Move (forward);",
+        "Turn (left);",
+        "Turn (left);",
+        "Continue_Sec (1);",
+        "... ;",
+        "Move (forward);",
+    ]
+    p2_initcode_task1 = [
+        "... ;",
+        "Move (forward);",
+        "Hover ();",
+        "Continue_Sec (1);",
+        "... ;",
+        "Hover ();",
+        "Continue_Sec (1);",
+        "Move (forward);",
+    ]
+    p2_initcode_task2 = [
+        "... ;",
+        "Engine (start);",
+        "Move (forward);",
+        "Move (forward);",
+        "... ;",
+        "Turn (left);",
+        "Turn (left);",
+        "Continue_Sec (1);",
+    ]
+
+    def __init__(self, df_excode, df_edcode):
+        """
+        The input dataframes must be data from the same group.
+        """
+        # Copy the input dataframes
+        self.df_excode = df_excode.copy()
+        self.df_edcode = df_edcode.copy()
+
+        # Identify the task order
+        t0_ar = gp_excode.xs('A', level=1).iloc[0]['timestamp']
+        t0_nonar = gp_excode.xs('N', level=1).iloc[0]['timestamp']
+        if t0_ar > t0_nonar:
+            self.task1_vis, self.task2_vis = 'N', 'A'
+        else:
+            self.task1_vis, self.task2_vis = 'A', 'N'
+
+        # Get the initial code for the two tasks
+        self.init_code = self.get_init_code()
+
+        # Identify roles in post-edit code
+        self.df_edcode['role'] = \
+            self.df_edcode['snapshot'].apply(self.identify_player)
+
+        # Reset the index
+        self.df_edcode = \
+            self.df_edcode.set_index(['vis_type', 'role']).sort_index()
+
+        # Build the code-changing sequence
+        self.task_edit_history = {
+            'A': self.track_edit_history(vis_type='A'),
+            'N': self.track_edit_history(vis_type='N'),
+        }
+
+    def track_edit_history(self, vis_type):
+        """
+        Build the history of code snapshots by using the initial code and following the post-edit code records.
+        """
+        # Refer to some data
+        init_code = self.init_code
+        df_edcode = self.get_postedit_code()
+
+        # Copy the code-edit records as the base
+        code_history = df_edcode[['timestamp', 'snapshot']].copy()
+        task_history = code_history.loc[vis_type].copy()
+        task_history.sort_values('timestamp', inplace=True)
+
+        # Insert new ordered indices
+        task_history.reset_index(inplace=True)
+
+        # Add one row for the initial code and then sort the df
+        task_history.loc[-1] = None
+        task_history.sort_index(inplace=True)
+
+        # Insert initial code as the default state
+        task_history['state_p1'] = ' '.join(init_code[vis_type]['P1'])
+        task_history['state_p2'] = ' '.join(init_code[vis_type]['P2'])
+
+        # Update code states by iterating code-edit records
+        states = []
+        prev_s1, prev_s2 = np.nan, np.nan
+        for i, (index, row) in enumerate(task_history.iterrows()):
+            role = row['role']
+            snapshot = row['snapshot']
+            state_p1, state_p2 = row['state_p1'], row['state_p2']
+            rt = (np.nan, np.nan)
+
+            # When role is NaN, it should be the initial state
+            if role is np.nan:
+                rt = (state_p1, state_p2)
+
+            # For an edit, keep the state from the previous row
+            else:
+                if prev_s1 is np.nan or prev_s2 is np.nan:
+                    raise ValueError('the previous state was not found')
+                # Save the edit record from P1 or P2
+                if role == 'P1':
+                    rt = (snapshot, prev_s2)
+                elif role == 'P2':
+                    rt = (prev_s1, snapshot)
+                else:
+                    raise ValueError('Unknown role value: {}'.format(role))
+
+            prev_s1, prev_s2 = rt
+            states.append(rt)
+
+        # Add back the code states to the base df
+        # Note: The index and column names have to match in this case
+        states = pd.DataFrame(states, columns=['state_p1', 'state_p2', ])
+        task_history['state_p1'] = states['state_p1'].values
+        task_history['state_p2'] = states['state_p2'].values
+
+        return task_history
+
+    def get_task_edit_history(self):
+        return self.task_edit_history
+
+    def get_preexec_code(self):
+        """
+        Get records of pre-exec codes.
+        """
+        return self.df_excode
+
+    def get_postedit_code(self):
+        """
+        Get records of post-edit codes.
+        """
+        return self.df_edcode
+
+    def get_init_code(self):
+        """
+        Get initial code snapshots for P1 and P2 in the two tasks.
+        """
+        task1_vis, task2_vis = self.task1_vis, self.task2_vis
+        init_code = {
+            'A': {
+                'P1': None,
+                'P2': None,
+            },
+            'N': {
+                'P1': None,
+                'P2': None,
+            },
+        }
+        init_code[task1_vis]['P1'] = self.p1_initcode_task1
+        init_code[task2_vis]['P1'] = self.p1_initcode_task2
+        init_code[task1_vis]['P2'] = self.p2_initcode_task1
+        init_code[task2_vis]['P2'] = self.p2_initcode_task2
+
+        return init_code
+
+    def identify_player(self, code):
+        """
+        Identify the role of player by checking the signature in the code string.
+        """
+        return 'P2' if code[:3] == '...' else 'P1'
+
+    def tokenize_code(self, snapshot):
+        """
+        Tokenize the code snapshot and remove heading/trailing whitespace.
+        """
+        tokens = [i.strip() for i in snapshot.split('; ') if len(i) != 0]
+        return tokens
+
+
+if __name__ == "__main__":
+    # code_snapshots = collect_code_snapshots()
+    # task_log_records = collect_task_logdata()
+
+    # Load data
+
+    cols = ['group_id', 'user_id', 'vis_type',
+            'timestamp', 'category', 'snapshot']
+    df_code_preexec = pd.read_csv('code_preexec.csv')[cols].copy()
+    df_code_postedit = pd.read_csv('code_postedit.csv')[cols].copy()
+
+    # Preprocess
+
+    def convert_timestamp(x): return pd.to_datetime(x)
+    df_code_preexec['timestamp'] = convert_timestamp(
+        df_code_preexec['timestamp'])
+    df_code_postedit['timestamp'] = convert_timestamp(
+        df_code_postedit['timestamp'])
+
+    def get_group_index(x): return int(
+        x.split('-')[0].replace('UserStudy', ''))
+    df_code_preexec['group_id'] = df_code_preexec['group_id'].apply(
+        get_group_index)
+    df_code_postedit['group_id'] = df_code_postedit['group_id'].apply(
+        get_group_index)
+
+    def sort_by_time(x): return x.sort_values('timestamp')
+    df_code_preexec = df_code_preexec.groupby(
+        ['group_id', 'vis_type']).apply(sort_by_time)
+    df_code_postedit = df_code_postedit.groupby(
+        ['group_id', 'vis_type']).apply(sort_by_time)
+
+    # Re-construct snapshots for each group
+    gp_excode = df_code_preexec.query('(group_id == 5)')
+    gp_edcode = df_code_postedit.query('(group_id == 5)')
+
+    ci = CodeInterpreter(gp_excode, gp_edcode)
+    df_edit_history = ci.get_task_edit_history()

@@ -143,7 +143,7 @@ def annotate_event_wins(df, event_windows, heuristic=True):
     return trans_event
 
 
-def _find_code_diff(x):
+def find_code_diff(x):
     """
     Find changes between two code snapshots and count numbers of lines changed.
 
@@ -197,7 +197,10 @@ def _find_code_diff(x):
     return rt
 
 
-def _mark_vis_type_code(x, timetable):
+def mark_vis_type_code(x, timetable):
+    """
+    Mark vis_type (task) for code snapshots by following timetable.
+    """
     index_value = x.name
     a_time = timetable.loc[index_value, 'A']
     n_time = timetable.loc[index_value, 'N']
@@ -232,7 +235,7 @@ def _mark_vis_type_code(x, timetable):
     return rt
 
 
-def _get_stage_clear_times(x):
+def get_stage_clear_times(x):
     """
     Returns:
         Stage-clear times of tutorial, task1, task2 in a tuple
@@ -269,7 +272,7 @@ def _get_stage_clear_times(x):
     return pd.Series(rt, index=['t0_clear_time', 't1_clear_time', 't2_clear_time'])
 
 
-def _get_relaxed_solution(sol):
+def get_relaxed_solution(sol):
     """
     Get an relaxed solution (by removing args in continue sec)
     """
@@ -286,16 +289,49 @@ def _get_relaxed_solution(sol):
     return rt
 
 
-def _get_editdist_solution(snapshot, solution, solution_r):
+def tokenize_code(snapshot):
+    """
+    Tokenize the code snapshot and remove heading/trailing whitespace.
+    """
+    tokens = [i.strip() for i in snapshot.split('; ') if len(i) != 0]
+    return tokens
+
+
+def get_editdist_solution(snapshot, solution, solution_r):
     """
     Split code snapshots and calculate edit distance to the solution
     """
-    split = [i.strip() for i in snapshot.split('; ') if len(i) != 0]
-    split_r = _get_relaxed_solution(split)
-    lev = Lev()
-    ed_sol = lev.distance(split, solution)
-    ed_sol_r = lev.distance(split_r, solution_r)
+    split = tokenize_code(snapshot)
+    split_r = get_relaxed_solution(split)
+    ed_sol = get_edit_distance(split, solution)
+    ed_sol_r = get_edit_distance(split_r, solution_r)
     return pd.Series({'ed_sol': ed_sol, 'ed_sol_r': ed_sol_r})
+
+
+def get_edit_distance(a, b):
+    """
+    Compute the edit distance between a and b.
+    """
+    lev = Lev()
+    return lev.distance(a, b)
+
+
+def count_cmds(snapshot):
+    """
+    Count commands in the code snapshot.
+    """
+    split = [i.strip() for i in snapshot.split('; ')]
+    split = [i.strip().split(' ')[0]
+             for i in snapshot.split('; ') if len(i) > 0]
+    cmd_counts = Counter(split)
+    rt = {
+        'n_cmd_move': cmd_counts['Move'],
+        'n_cmd_climb': cmd_counts['Climb'],
+        'n_cmd_hover': cmd_counts['Hover'],
+        'n_cmd_continue': cmd_counts['Continue_Sec'],
+        'n_cmd_engine': cmd_counts['Engine'],
+    }
+    return pd.Series(rt)
 
 
 # ============================================================
@@ -323,7 +359,7 @@ stage_clear_times = df_tasklog[
 ].copy()
 stage_clear_times = stage_clear_times\
     .groupby('group_id')\
-    .apply(_get_stage_clear_times)
+    .apply(get_stage_clear_times)
 
 # ============================================================
 # Preprocess the transcriptions
@@ -504,17 +540,17 @@ df_code_preexec = df_merged_code.copy()
 # Mark vis_type and remove tutorial code
 vis_times = df_trans1.groupby(['group_id', 'vis_type'])['timestamp'].min()
 df_code_preexec1 = df_code_preexec.groupby(['group_id'])\
-    .apply(_mark_vis_type_code, timetable=vis_times)
+    .apply(mark_vis_type_code, timetable=vis_times)
 df_code_preexec1 = df_code_preexec1.reset_index(drop=True)
 df_code_postedit1 = df_code_postedit.groupby(['group_id'])\
-    .apply(_mark_vis_type_code, timetable=vis_times)
+    .apply(mark_vis_type_code, timetable=vis_times)
 df_code_postedit1 = df_code_postedit1.reset_index(drop=True)
 
 # Find differences between pre-exec code snapshots
 df_code_preexec2 = df_code_preexec1.groupby(['group_id', 'vis_type'])\
-    .apply(_find_code_diff).reset_index(drop=True)
+    .apply(find_code_diff).reset_index(drop=True)
 df_code_postedit2 = df_code_postedit1.groupby(['user_id', 'vis_type'])\
-    .apply(_find_code_diff).reset_index(drop=True)
+    .apply(find_code_diff).reset_index(drop=True)
 
 # Find the records showing code differences
 df_cedit = df_code_postedit2[df_code_postedit2['num_removed'] > 0].copy()
@@ -528,28 +564,11 @@ df_cedit['timebins'] = pd.cut(
     df_cedit['time_offset_vt'], num_bins,
     labels=['T' + str(i) for i in range(num_bins)])
 
-# Count commands
-
-
-def count_cmds(snapshot):
-    split = [i.strip() for i in snapshot.split('; ')]
-    split = [i.strip().split(' ')[0]
-             for i in snapshot.split('; ') if len(i) > 0]
-    cmd_counts = Counter(split)
-    rt = {
-        'n_cmd_move': cmd_counts['Move'],
-        'n_cmd_climb': cmd_counts['Climb'],
-        'n_cmd_hover': cmd_counts['Hover'],
-        'n_cmd_continue': cmd_counts['Continue_Sec'],
-        'n_cmd_engine': cmd_counts['Engine'],
-    }
-    return pd.Series(rt)
-
-
+# Count different commands
 cmd_counts = df_cexec['snapshot'].apply(count_cmds)
 df_cexec = df_cexec.merge(cmd_counts, left_index=True, right_index=True)
 
-# Add the solution code (for pre-exec snapshots)
+# Get the solution code (for pre-exec snapshots)
 solution1 = [
     "Engine (start)",
     "Climb (up)",
@@ -565,13 +584,13 @@ solution1 = [
     "Hover ()",
     "Climb (down)",
 ]
-relaxed_solution1 = _get_relaxed_solution(solution1)
+relaxed_solution1 = get_relaxed_solution(solution1)
 
 # Compute edit distance to the solution (ed_sol)
 df_cexec[['ed_sol', 'ed_sol_r']] = df_cexec['snapshot'].apply(
-    _get_editdist_solution, solution=solution1, solution_r=relaxed_solution1)
+    get_editdist_solution, solution=solution1, solution_r=relaxed_solution1)
 
-# Add the solution code for post-edit snapshots
+# Get the solution code for post-edit snapshots
 pe_solution1 = [
     "Engine (start)",
     "Climb (up)",
@@ -593,8 +612,8 @@ pe_solution2 = [
     "Continue_Sec (7)",
     "Hover ()",
 ]
-pe_relaxed_solution1 = _get_relaxed_solution(pe_solution1)
-pe_relaxed_solution2 = _get_relaxed_solution(pe_solution2)
+pe_relaxed_solution1 = get_relaxed_solution(pe_solution1)
+pe_relaxed_solution2 = get_relaxed_solution(pe_solution2)
 
 # Compute edit distance to the solution (ed_sol)
 df_cedit['ed_sol'], df_cedit['ed_sol_r'] = np.nan, np.nan
@@ -602,12 +621,22 @@ df_cedit['ed_sol'], df_cedit['ed_sol_r'] = np.nan, np.nan
 i_p2code = df_cedit['snapshot'].str.startswith("...")
 df_cedit.loc[i_p2code, ['ed_sol', 'ed_sol_r']] = \
     df_cedit.loc[i_p2code, 'snapshot'].apply(
-        _get_editdist_solution, solution=pe_solution2, solution_r=pe_relaxed_solution2)
+        get_editdist_solution, solution=pe_solution2, solution_r=pe_relaxed_solution2)
 # For P1 code
 i_p1code = (~i_p2code)
 df_cedit.loc[i_p1code, ['ed_sol', 'ed_sol_r']] = \
     df_cedit.loc[i_p1code, 'snapshot'].apply(
-        _get_editdist_solution, solution=pe_solution1, solution_r=pe_relaxed_solution1)
+        get_editdist_solution, solution=pe_solution1, solution_r=pe_relaxed_solution1)
+
+# Get the edit distance to the previous snapshot for each record
+def f(x):
+    snapshots = x['snapshot']
+    prev_snapshots = snapshots.shift().fillna('')
+    ed_to_prev = [
+        get_edit_distance(tokenize_code(a), tokenize_code(b))
+        for a, b in zip(snapshots, prev_snapshots)]
+    return pd.DataFrame({'ed_to_prev': ed_to_prev}, index=x.index)
+df_cexec['ed_to_prev'] = df_cexec.groupby(['group_id', 'vis_type']).apply(f)
 
 # ============================================================
 # Annotate transcription logs by event windows
