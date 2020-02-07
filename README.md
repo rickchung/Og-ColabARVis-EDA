@@ -12,11 +12,11 @@ No data is published in this repository now. For more information about this res
 
 ## Notebooks
 
-**Exploratory Data Analysis on Discourse and Code (`og_userstudy_eda1_discourse_code.ipynb`)**
+**Exploratory Data Analysis on Discourse and Code (`ogus_eda_summary_discourse_code.ipynb`)**
 
 This notebook contains the very first try in EDA on discourse and code. The analyses are focused on summary statistics in the dataset but not the semantics.
 
-**Exploratory Data Analysis on Code Snapshots (`og_userstudy_eda1_code.ipynb`)**
+**Exploratory Data Analysis on Code Snapshots (`ogus_eda_code_semantics.ipynb`)**
 
 This notebook contains an analysis on the semantics of code snapshots including the passing rate, the correctness (or errorousness), and the code edits.
 
