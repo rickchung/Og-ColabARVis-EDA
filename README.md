@@ -2,7 +2,7 @@
 
 This repository is for storing and tracking scripts used in our analysis.
 
-## Data (Not Available Now)
+## Data (Not Included in this Repository)
 
 No data is published in this repository now. For more information about this research project, please check our [website](https://sites.google.com/asu.edu/ogmented/home).
 
@@ -48,7 +48,7 @@ An audio and language analyzers based on GCloud libaray. This script is mainly u
 - Output: transcription txt files, `audio_info_table.csv`
 
 
-**`preprocess_trsrpt_meta.py` (Py3): User this script when you need to extract and append meta data on the raw transcription data.**
+**`preprocess_trsrpt_meta.py` (Py3): Use this script when you need to extract and append meta data on the raw transcription data.**
 
 This script preprocesses the audio info table (containing speech-to-text transcriptions) by appending some metadata of the user study like task orders, timestamps of audio clips (starting times of recording), and study groups. The output file will be processed manually by the researcher for later analyses.
 
