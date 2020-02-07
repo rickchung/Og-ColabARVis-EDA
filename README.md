@@ -1,6 +1,26 @@
+# Ogmented Research Project
+
+This repository is for storing and tracking scripts used in our analysis.
+
+# Data (Not Available Now)
+
+No data is published in this repository now. For more information about this research project, please check our [website](https://sites.google.com/asu.edu/ogmented/home).
+
+# Notebooks (Not Available Now)
+
+## Exploratory Data Analysis on Discourse and Code (`og_userstudy_eda1_discourse_code.ipynb`)
+
+This notebook contains the very first try in EDA on discourse and code. The analyses are focused on summary statistics in the dataset but not the semantics.
+
+## Exploratory Data Analysis on Code Snapshots (`og_userstudy_eda1_code.ipynb`)
+
+This notebook contains an analysis on the semantics of code snapshots including the passing rate, the correctness (or errorousness), and the code edits.
+
 # Model
 
 ![Data Model](model.jpg)
+
+--------------------
 
 # Output Data Files (Not Included in this Repository)
 
