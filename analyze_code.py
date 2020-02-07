@@ -103,23 +103,7 @@ class CodeInterpreter():
         "Hover ()",
         "Climb (down)",
     ]
-    reg_sol_task1 = [  # Task 1 range = [0, 6] (i.e., [:7]) of merged code
-        "Engine (start)",
-        "Climb (up)",
-        "Move (forward)",
-        "Continue_Sec (8)",
-        "Hover ()",
-        "Climb (down)",
-        "Continue_Sec (6)",
-    ]
-    reg_sol_task2 = [  # Task 2 range = [7, 12] (i.e., [7:]) of merged code
-        "Climb (up)",
-        "Continue_Sec (3)",
-        "Move (forward)",
-        "Continue_Sec (7)",
-        "Hover ()",
-        "Climb (down)",
-    ]
+
     reg_sol_player1 = [  # Referring to snapshots
         "Engine (start)",
         "Climb (up)",
@@ -141,6 +125,7 @@ class CodeInterpreter():
         "Continue_Sec (7)",
         "Hover ()",
     ]
+
     # Add abstract solutions
     abs_sol = [  # Referring to merged code
         "Engine (start)",
@@ -151,15 +136,17 @@ class CodeInterpreter():
         "Move (forward)",
         "Climb (down)",
     ]
-    abs_sol_task1 = [
+    abs_sol_ncp = [
         "Engine (start)",
         "Climb (up)",
         "Move (forward)",
+        "Continue_Sec",
         "Climb (down)",
-    ]
-    abs_sol_task2 = [
+        "Continue_Sec",
         "Climb (up)",
+        "Continue_Sec",
         "Move (forward)",
+        "Continue_Sec",
         "Climb (down)",
     ]
 
@@ -198,25 +185,35 @@ class CodeInterpreter():
 
         # Measure ED to the regular solution
         self._add_dist_to_ref(self.reg_sol, '_state', 'ed_reg_sol')
+
         # Measure ED to the abstract solution
         self._add_dist_to_ref(self.abs_sol, '_state', 'ed_abs_sol')
+        self._add_dist_to_ref(self.abs_sol_ncp, '_state_ncp', 'ed_abs_sol_ncp')
+
         # Measure ED to regular solutions of task1 and task2
-        self._add_dist_to_ref(self.reg_sol_task1,
+        self._add_dist_to_ref(self.reg_sol[:7],
                               '_state_task1', 'ed_reg_sol_task1')
-        self._add_dist_to_ref(self.reg_sol_task2,
+        self._add_dist_to_ref(self.reg_sol[7:],
                               '_state_task2', 'ed_reg_sol_task2')
         # Measure ED to abstract solutions of task1 ans task2
-        self._add_dist_to_ref(self.reg_sol_task1,
-                              '_state_task1', 'ed_reg_sol_task1')
-        self._add_dist_to_ref(self.reg_sol_task2,
-                              '_state_task2', 'ed_reg_sol_task2')
+        self._add_dist_to_ref(self.abs_sol[:4],
+                              '_state_task1', 'ed_abs_sol_task1')
+        self._add_dist_to_ref(self.abs_sol[4:],
+                              '_state_task2', 'ed_abs_sol_task2')
+        self._add_dist_to_ref(self.abs_sol_ncp[:5],
+                              '_state_task1', 'ed_abs_sol_task1_ncp')
+        self._add_dist_to_ref(self.abs_sol_ncp[5:],
+                              '_state_task2', 'ed_abs_sol_task2_ncp')
+
         # Measure ED to regular solutions of player1 and player2
         self._add_dist_to_ref(self.reg_sol_player1,
                               '_state_p1', 'ed_reg_sol_p1')
         self._add_dist_to_ref(self.reg_sol_player2,
                               '_state_p2', 'ed_reg_sol_p2')
+
         # Find exact code differences between code states
         # e.g., (L1, removed, added), (L3, removed, added), ...
+        self._add_code_diff()
 
     # Methods for internal use only
 
@@ -229,7 +226,9 @@ class CodeInterpreter():
         df_edcode = self.get_postedit_code()
 
         # Copy the code-edit records as the base
-        code_history = df_edcode[['timestamp', 'snapshot']].copy()
+        # Here only a minimum set of columns are kept.
+        code_history = df_edcode[['timestamp',
+                                  'time_offset_vt', 'snapshot']].copy()
         task_history = code_history.loc[vis_type].copy()
         task_history.sort_values('timestamp', inplace=True)
 
@@ -319,35 +318,73 @@ class CodeInterpreter():
         task_edit_history = self.task_edit_history
         tokenize_code = self._tokenize_code
         for vis_type in ['A', 'N']:
+            # Player 1 and 2
             task_edit_history[vis_type]['_state_p1'] = \
                 task_edit_history[vis_type]['state_p1'].apply(tokenize_code)
             task_edit_history[vis_type]['_state_p2'] = \
                 task_edit_history[vis_type]['state_p2'].apply(tokenize_code)
+
+            # General state
             task_edit_history[vis_type]['_state'] = \
                 task_edit_history[vis_type]['state'].apply(tokenize_code)
+            # Task1 and Task2
             task_edit_history[vis_type]['_state_task1'] = \
                 task_edit_history[vis_type]['_state'].apply(lambda x: x[:7])
             task_edit_history[vis_type]['_state_task2'] = \
                 task_edit_history[vis_type]['_state'].apply(lambda x: x[7:])
 
-    def _add_dist_to_ref(self, ref_seq, target_col, out_col_name, metric='mlcs'):
+            # no "continue" parameters
+            task_edit_history[vis_type]['_state_ncp'] = \
+                task_edit_history[vis_type]['state'].apply(
+                    tokenize_code, remove_continue_params=True)
+            task_edit_history[vis_type]['_state_ncp_task1'] = \
+                task_edit_history[vis_type]['_state_ncp'].apply(
+                    lambda x: x[:7])
+            task_edit_history[vis_type]['_state_ncp_task2'] = \
+                task_edit_history[vis_type]['_state_ncp'].apply(
+                    lambda x: x[7:])
+
+    def _add_dist_to_ref(self, ref_seq, target_col, out_col_name, metric='mylcs'):
         """
         Measure distance between the given ref_seq to all values in the column target_col of task_edit_history.
         """
         for vis_type in ['A', 'N']:
             df = self.task_edit_history[vis_type]
             ed = df[target_col].apply(
-                lambda x: self._get_distance(x, ref_seq, metric=metric))
+                lambda x: self._get_distance(x, ref_seq, metric=metric,
+                                             max_len=(len(x) + len(ref_seq))))
             self.task_edit_history[vis_type][out_col_name] = ed
+
+    def _add_code_diff(self):
+        """
+        Find the changes between snapshots
+        """
+        for vis_type in ['A', 'N']:
+            df = self.task_edit_history[vis_type]
+            states = df['_state']
+            shifted_states = df['_state'].shift()
+            changes = [
+                self._get_diff(p, c) for p, c in zip(shifted_states, states)]
+            self.task_edit_history[vis_type]['state_diff'] = changes
 
     # Helper methods
 
-    def _tokenize_code(self, snapshot):
+    def _tokenize_code(self, snapshot, remove_continue_params=False):
         """
         Tokenize the code snapshot and remove heading/trailing whitespace.
         """
         tokens = [i.strip()
                   for i in snapshot.split(';') if len(i.strip()) != 0]
+
+        if remove_continue_params:
+            tokens_ncp = []
+            for i in tokens:
+                if 'Continue_Sec' in i:
+                    tokens_ncp.append(i.split('(')[0].strip())
+                else:
+                    tokens_ncp.append(i)
+            tokens = tokens_ncp
+
         return tokens
 
     def _merge_code(self, p1_code_str, p2_code_str):
@@ -369,7 +406,7 @@ class CodeInterpreter():
 
         return merged_code
 
-    def _get_distance(self, a, b, metric='ed'):
+    def _get_distance(self, a, b, metric='ed', max_len=None):
         """
         Compute the edit distance between two token lists a and b.
         """
@@ -381,6 +418,12 @@ class CodeInterpreter():
             def dist_func(x, y): return 0 if x == y else 1
             d, mat_cost, mat_acc_cost, path = dtw_func(a, b, dist=dist_func)
             rt = d
+        elif metric == 'lcs':
+            lcs = LongestCommonSubsequence()
+            rt = lcs.distance(a, b)
+        elif metric == 'mylcs':
+            lcs = LongestCommonSubsequence()
+            rt = lcs.distance(a, b) / max_len
         elif metric == 'mlcs':  # metric LCS
             metric_lcs = MetricLCS()
             rt = metric_lcs.distance(a, b)
@@ -394,7 +437,22 @@ class CodeInterpreter():
         """
         Find the difference between two token lists a and b.
         """
-        return list(difflib.unified_diff(a, b, n=0))
+        if a is np.nan or b is np.nan:
+            return np.nan
+        diff = list(difflib.unified_diff(a, b, n=0))
+        rt = '|'.join(diff)
+
+        # rt = []
+        # for i in diff:
+        #     if i[:3] == '---' or i[:3] == '+++':
+        #         pass
+        #     elif i[:2] == '@@':
+        #         rt.append(i.split('@@')[1].strip())
+        #     elif i[0] == '-' or i[0] == '+':
+        #         rt.append(i)
+        # rt = '|'.join(rt)
+
+        return rt
 
     # Getter methods
 
@@ -426,7 +484,7 @@ if __name__ == "__main__":
     # Load data
 
     cols = ['group_id', 'user_id', 'vis_type',
-            'timestamp', 'category', 'snapshot']
+            'timestamp', 'time_offset_vt', 'category', 'snapshot']
     df_code_preexec = pd.read_csv('code_preexec.csv')[cols].copy()
     df_code_postedit = pd.read_csv('code_postedit.csv')[cols].copy()
 
@@ -451,10 +509,14 @@ if __name__ == "__main__":
     df_code_postedit = df_code_postedit.groupby(
         ['group_id', 'vis_type']).apply(sort_by_time)
 
-    # For each group, make a code interpreter
-
-    gp_excode = df_code_preexec.query('(group_id == 5)')
-    gp_edcode = df_code_postedit.query('(group_id == 5)')
-
-    ci = CodeInterpreter(gp_excode, gp_edcode)
-    df_edit_history = ci.get_task_edit_history()
+    # Interpret the code group by group
+    rt = []
+    for gid in range(2, 14):
+        gp_excode = df_code_preexec.query('(group_id == {})'.format(gid))
+        gp_edcode = df_code_postedit.query('(group_id == {})'.format(gid))
+        ci = CodeInterpreter(gp_excode, gp_edcode)
+        df_edit_history = ci.get_task_edit_history()
+        df_edit_history['gid'] = gid
+        rt.append(df_edit_history)
+    rt = pd.concat(rt, axis='index', ignore_index=True)
+    rt.to_csv('code_stats.csv', index=False)
